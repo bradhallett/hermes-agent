@@ -372,7 +372,7 @@ TOOLSETS = {
         "description": "Editor integration (VS Code, Zed, JetBrains) — coding-focused tools without messaging, audio, or clarify UI",
         "tools": [
             "web_search", "web_extract",
-            "terminal", "process",
+            "terminal", "process", "read_terminal",
             "read_file", "write_file", "patch", "search_files",
             "vision_analyze",
             "skills_list", "skill_view", "skill_manage",
@@ -393,7 +393,7 @@ TOOLSETS = {
             # Web
             "web_search", "web_extract",
             # Terminal + process management
-            "terminal", "process",
+            "terminal", "process", "read_terminal",
             # File manipulation
             "read_file", "write_file", "patch", "search_files",
             # Vision + image generation

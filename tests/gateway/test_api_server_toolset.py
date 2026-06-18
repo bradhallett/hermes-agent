@@ -23,7 +23,7 @@ class TestHermesApiServerToolset:
     def test_toolset_includes_core_tools(self):
         tools = resolve_toolset("hermes-api-server")
         expected = [
-            "terminal", "process",
+            "terminal", "process", "read_terminal",
             "read_file", "write_file", "patch", "search_files",
             "vision_analyze", "image_generate",
             "execute_code", "delegate_task",

@@ -80,6 +80,19 @@ def test_get_platform_tools_uses_default_when_platform_not_configured():
     assert enabled.isdisjoint(_DEFAULT_OFF_TOOLSETS)
 
 
+def test_get_platform_tools_api_server_keeps_terminal_after_tool_registry_load():
+    """Runtime registration adds read_terminal to the terminal toolset."""
+    import model_tools  # noqa: F401
+
+    enabled = _get_platform_tools(
+        {},
+        "api_server",
+        include_default_mcp_servers=False,
+    )
+
+    assert "terminal" in enabled
+
+
 def test_gui_toolset_label_strips_leading_emoji():
     assert gui_toolset_label("🔍 Web Search & Scraping") == "Web Search & Scraping"
     assert gui_toolset_label("👁️  Vision / Image Analysis") == "Vision / Image Analysis"
@@ -1199,7 +1212,7 @@ def test_get_platform_tools_recovers_non_configurable_toolsets_from_composite():
     }
     fake_toolsets["hermes-_test_platform"] = {
         "description": "test composite",
-        "tools": ["web_search", "web_extract", "terminal", "process", "_test_special_tool"],
+        "tools": ["web_search", "web_extract", "terminal", "process", "read_terminal", "_test_special_tool"],
         "includes": [],
     }
 
@@ -1540,5 +1553,3 @@ def test_real_configurable_changes_still_reported_in_diff():
     # User adds 'vision' (configurable) — must still report as added.
     new_enabled2 = (current - {"kanban"}) | {"vision"}
     assert ((new_enabled2 - current) & universe) == {"vision"}
-
-
