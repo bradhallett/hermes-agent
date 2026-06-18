@@ -13,6 +13,13 @@ delegates to subagents, runs scheduled jobs, and drives a real terminal and
 browser. It is extended primarily through **plugins and skills**, not by
 growing the core.
 
+**Memory routing contract:** when changing or evaluating persistent knowledge,
+load `skill_view(name='memory-architecture')`. Keep always-loaded USER.md and
+MEMORY.md compact; route rich context/history to Hindsight, procedures to
+skills, and past conversation lookup to session_search. Persist Brad's
+corrections immediately and proactively recall before asking him to repeat
+context.
+
 Two properties shape almost every design decision and are the lens for
 reviewing any change:
 
