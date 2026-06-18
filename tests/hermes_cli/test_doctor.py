@@ -167,6 +167,26 @@ class TestDoctorToolAvailabilityOverrides:
 
         assert doctor._doctor_tool_availability_detail("kanban") == "(runtime-gated; loaded only for dispatcher-spawned workers)"
 
+    def test_inactive_api_toolset_is_outside_doctor_scope(self):
+        active_toolsets = {"hermes-cli"}
+        active_tools = {"terminal", "read_file"}
+
+        assert doctor._doctor_toolset_in_active_scope(
+            {"name": "moa", "env_vars": ["OPENROUTER_API_KEY"], "tools": ["mixture_of_agents"]},
+            active_toolsets,
+            active_tools,
+        ) is False
+
+    def test_active_tool_is_inside_doctor_scope(self):
+        active_toolsets = {"hermes-cli"}
+        active_tools = {"terminal", "read_file"}
+
+        assert doctor._doctor_toolset_in_active_scope(
+            {"name": "terminal", "env_vars": [], "tools": ["terminal"]},
+            active_toolsets,
+            active_tools,
+        ) is True
+
 
 class TestHonchoDoctorConfigDetection:
     def test_reports_configured_when_enabled_with_api_key(self, monkeypatch):
@@ -835,11 +855,25 @@ def test_run_doctor_opencode_go_skips_invalid_models_probe(monkeypatch, tmp_path
 class TestGitHubTokenCheck:
     """Tests for GitHub token / gh auth detection in doctor."""
 
+    @staticmethod
+    def _mask_github_token_lookup(monkeypatch):
+        from hermes_cli import config as config_mod
+
+        real_get_env_value = config_mod.get_env_value
+
+        def fake_get_env_value(key):
+            if key in {"GITHUB_TOKEN", "GH_TOKEN"}:
+                return None
+            return real_get_env_value(key)
+
+        monkeypatch.setattr(config_mod, "get_env_value", fake_get_env_value)
+
     def test_no_token_and_not_gh_authenticated_shows_warn(self, monkeypatch, tmp_path):
         home = tmp_path / ".hermes"
         home.mkdir(parents=True, exist_ok=True)
         monkeypatch.setenv("HERMES_HOME", str(home))
         monkeypatch.setenv("PATH", "/nonexistent")  # gh not found
+        self._mask_github_token_lookup(monkeypatch)
 
         from hermes_cli.doctor import run_doctor
         import io, contextlib
@@ -876,6 +910,7 @@ class TestGitHubTokenCheck:
         # No GITHUB_TOKEN or GH_TOKEN
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         monkeypatch.delenv("GH_TOKEN", raising=False)
+        self._mask_github_token_lookup(monkeypatch)
 
         # Mock gh to return success
         import shutil

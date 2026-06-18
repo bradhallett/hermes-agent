@@ -149,6 +149,48 @@ def _apply_doctor_tool_availability_overrides(available: list[str], unavailable:
     return updated_available, updated_unavailable
 
 
+def _doctor_active_tool_scope() -> tuple[set[str], set[str]]:
+    """Return active configured toolsets and resolved tool names for this profile.
+
+    Tool availability is global because the registry knows about every optional
+    plugin/toolset. Doctor should only promote missing API keys for toolsets that
+    the current config can actually expose to the agent.
+    """
+    try:
+        from hermes_cli.config import load_config
+        from toolsets import resolve_toolset
+
+        cfg = load_config()
+        if not isinstance(cfg, dict):
+            return set(), set()
+        enabled = cfg.get("toolsets") or ["hermes-cli"]
+        if isinstance(enabled, str):
+            enabled = [enabled]
+        agent_cfg = cfg.get("agent") if isinstance(cfg.get("agent"), dict) else {}
+        disabled = agent_cfg.get("disabled_toolsets") or []
+        if isinstance(disabled, str):
+            disabled = [disabled]
+
+        active_toolsets = {str(ts) for ts in enabled if str(ts).strip()}
+        active_tools: set[str] = set()
+        for toolset in active_toolsets:
+            active_tools.update(resolve_toolset(toolset))
+        for toolset in {str(ts) for ts in disabled if str(ts).strip()}:
+            active_toolsets.discard(toolset)
+            active_tools.difference_update(resolve_toolset(toolset))
+        return active_toolsets, active_tools
+    except Exception:
+        return set(), set()
+
+
+def _doctor_toolset_in_active_scope(item: dict, active_toolsets: set[str], active_tools: set[str]) -> bool:
+    name = str(item.get("name") or "")
+    if name and name in active_toolsets:
+        return True
+    tools = {str(t) for t in (item.get("tools") or [])}
+    return bool(tools & active_tools)
+
+
 def _has_healthy_oauth_fallback_for_apikey_provider(provider_label: str) -> bool:
     """Return True when a direct API-key probe failure is non-blocking.
 
@@ -1668,6 +1710,18 @@ def run_doctor(args):
     def _probe_openrouter() -> _ConnectivityResult:
         key = os.getenv("OPENROUTER_API_KEY")
         if not key:
+            try:
+                from hermes_cli.config import load_config
+                cfg = load_config()
+                model_cfg = cfg.get("model") if isinstance(cfg, dict) else {}
+                if not isinstance(model_cfg, dict):
+                    model_cfg = {}
+                provider = str(model_cfg.get("provider") or "").strip().lower()
+                base_url = str(model_cfg.get("base_url") or "").strip()
+                if provider != "openrouter" and not base_url_host_matches(base_url, "openrouter.ai"):
+                    return _ConnectivityResult("OpenRouter API", [], [])
+            except Exception:
+                pass
             return _ConnectivityResult(
                 "OpenRouter API",
                 [(color("⚠", Colors.YELLOW), "OpenRouter API",
@@ -2083,6 +2137,7 @@ def run_doctor(args):
         
         available, unavailable = check_tool_availability()
         available, unavailable = _apply_doctor_tool_availability_overrides(available, unavailable)
+        active_toolsets, active_tools = _doctor_active_tool_scope()
         
         for tid in available:
             info = TOOLSET_REQUIREMENTS.get(tid, {})
@@ -2090,6 +2145,8 @@ def run_doctor(args):
         
         for item in unavailable:
             env_vars = item.get("missing_vars") or item.get("env_vars") or []
+            if env_vars and not _doctor_toolset_in_active_scope(item, active_toolsets, active_tools):
+                continue
             if env_vars:
                 vars_str = ", ".join(env_vars)
                 check_warn(item["name"], f"(missing {vars_str})")
@@ -2097,7 +2154,11 @@ def run_doctor(args):
                 check_warn(item["name"], "(system dependency not met)")
 
         # Count disabled tools with API key requirements
-        api_disabled = [u for u in unavailable if (u.get("missing_vars") or u.get("env_vars"))]
+        api_disabled = [
+            u for u in unavailable
+            if (u.get("missing_vars") or u.get("env_vars"))
+            and _doctor_toolset_in_active_scope(u, active_toolsets, active_tools)
+        ]
         if api_disabled:
             issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
     except Exception as e:
