@@ -81,6 +81,47 @@ def test_stash_local_changes_if_needed_returns_specific_stash_commit(monkeypatch
     assert calls[3][0][-3:] == ["rev-parse", "--verify", "refs/stash"]
 
 
+def test_local_patch_queue_skips_when_script_missing(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(hermes_main.subprocess, "run", fake_run)
+
+    assert hermes_main._run_local_patch_queue_after_update(tmp_path / "missing.sh") is False
+    assert calls == []
+
+
+def test_local_patch_queue_invokes_reapply_script(monkeypatch, tmp_path, capsys):
+    script = tmp_path / "reapply.sh"
+    script.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        return SimpleNamespace(returncode=0, stdout="patches ok\n", stderr="")
+
+    monkeypatch.setattr(hermes_main.subprocess, "run", fake_run)
+    monkeypatch.setattr(hermes_main, "PROJECT_ROOT", tmp_path / "repo")
+
+    assert hermes_main._run_local_patch_queue_after_update(script) is True
+
+    assert calls == [
+        (
+            ["bash", str(script)],
+            {
+                "cwd": tmp_path / "repo",
+                "capture_output": True,
+                "text": True,
+                "timeout": 120,
+            },
+        )
+    ]
+    assert "Local patch queue reapplied" in capsys.readouterr().out
+
+
 def test_resolve_stash_selector_returns_matching_entry(monkeypatch, tmp_path):
     def fake_run(cmd, **kwargs):
         assert cmd == ["git", "stash", "list", "--format=%gd %H"]

@@ -8410,6 +8410,52 @@ def _discard_lockfile_churn(git_cmd, repo_root):
         pass
 
 
+def _run_local_patch_queue_after_update(patch_script: Optional[Path] = None) -> bool:
+    """Reapply a user-managed Hermes patch queue after git update completes.
+
+    Local repairs may intentionally live outside the upstream checkout so they
+    survive ``git reset --hard origin/main`` during ``hermes update``. If the
+    queue script is present, run it as a best-effort self-heal; conflicts are
+    reported but do not abort the upstream update.
+    """
+    if os.environ.get("HERMES_SKIP_LOCAL_PATCH_QUEUE"):
+        return False
+
+    try:
+        if patch_script is None:
+            from hermes_constants import get_default_hermes_root
+
+            patch_script = (
+                get_default_hermes_root()
+                / "patches"
+                / "hermes-agent"
+                / "reapply.sh"
+            )
+        patch_script = Path(patch_script).expanduser()
+        if not patch_script.is_file():
+            return False
+
+        result = subprocess.run(
+            ["bash", str(patch_script)],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode == 0:
+            print("  ✓ Local patch queue reapplied")
+            return True
+
+        print("  ⚠ Local patch queue needs attention")
+        output = "\n".join(part for part in (result.stdout, result.stderr) if part)
+        for line in output.splitlines()[:12]:
+            print(f"    {line}")
+        return False
+    except Exception as exc:
+        logger.debug("Local patch queue reapply failed: %s", exc)
+        return False
+
+
 def cmd_update(args):
     """Update Hermes Agent to the latest version.
 
@@ -8915,6 +8961,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                     )
 
         _invalidate_update_cache()
+        _run_local_patch_queue_after_update()
 
         # Clear stale .pyc bytecode cache — prevents ImportError on gateway
         # restart when updated source references names that didn't exist in
